@@ -1,71 +1,63 @@
-# api/index_tmp.py
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 import requests
 import pandas as pd
 from datetime import datetime, timedelta
 import numpy as np
-from typing import Dict, Tuple
+from typing import Dict
 import json
 import os
-import io
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for frontend connection
+CORS(app)
 
 # Use /tmp for serverless writable area
 TMP_HISTORY_PATH = "/tmp/prediction_history.json"
 TMP_CSV_PATH = "/tmp/ExFarmPrice.csv"
 
-def ensure_tmp_csv_exists(src_path="ExFarmPrice.csv"):
-    """
-    If the CSV isn't already copied into /tmp (serverless ephemeral),
-    copy it from the project root (bundled with deployment) into /tmp.
-    """
+def ensure_tmp_csv_exists():
+    """Copy CSV from project root to /tmp on cold start"""
     if not os.path.exists(TMP_CSV_PATH):
         try:
-            if os.path.exists(src_path):
-                # copy to /tmp
-                with open(src_path, "rb") as fr:
-                    data = fr.read()
-                with open(TMP_CSV_PATH, "wb") as fw:
-                    fw.write(data)
-            else:
-                # create a minimal template
+            # Try to find CSV in various locations
+            possible_paths = [
+                "ExFarmPrice.csv",
+                "../ExFarmPrice.csv",
+                os.path.join(os.path.dirname(__file__), "..", "ExFarmPrice.csv"),
+                os.path.join(os.path.dirname(__file__), "ExFarmPrice.csv")
+            ]
+            
+            csv_found = False
+            for src_path in possible_paths:
+                if os.path.exists(src_path):
+                    with open(src_path, "rb") as fr:
+                        data = fr.read()
+                    with open(TMP_CSV_PATH, "wb") as fw:
+                        fw.write(data)
+                    csv_found = True
+                    print(f"CSV copied from {src_path} to {TMP_CSV_PATH}")
+                    break
+            
+            if not csv_found:
+                # Create minimal template
                 df = pd.DataFrame([{"Date_Range": "01.01.2025 - 07.01.2025", "Avg_Price": 6.50}])
                 df.to_csv(TMP_CSV_PATH, index=False)
+                print("Created default CSV template")
         except Exception as e:
-            print("Error preparing tmp CSV:", e)
+            print(f"Error preparing tmp CSV: {e}")
 
-# ------------------------------
-# Your original class, only paths adjusted to use /tmp for writing
-# ------------------------------
 class ChickenRestockPredictor:
-    def __init__(self, api_url: str, csv_price_path: str):
-        """
-        Initialize the predictor with API URL and CSV file path
-        Args:
-            api_url: Your stock API endpoint
-            csv_price_path: Path to ex-farm chicken price CSV file (project root)
-        """
+    def __init__(self, api_url: str):
         self.api_url = api_url
-        self.csv_price_path = csv_price_path
-
-        # Base parameters
         self.MIN_STOCK = 1000
         self.MAX_STOCK = 2000
         self.BASE_DEMAND = 1200
-
-        # Define restock days (0=Monday, 3=Thursday, 5=Saturday)
         self.RESTOCK_DAYS = [0, 3, 5]
-
-        # Use /tmp for history so serverless can write
         self.history_file = TMP_HISTORY_PATH
-        ensure_tmp_csv_exists(self.csv_price_path)
+        ensure_tmp_csv_exists()
         self.load_history()
 
     def load_history(self):
-        """Load historical predictions and actuals"""
         try:
             if os.path.exists(self.history_file):
                 with open(self.history_file, 'r') as f:
@@ -77,7 +69,6 @@ class ChickenRestockPredictor:
             self.history = []
 
     def save_history(self):
-        """Save historical data (ephemeral on serverless)"""
         try:
             with open(self.history_file, 'w') as f:
                 json.dump(self.history, f, indent=2)
@@ -85,7 +76,6 @@ class ChickenRestockPredictor:
             print(f"Error saving history: {e}")
 
     def add_historical_record(self, prediction: Dict, actual: int = None):
-        """Add a prediction record to history"""
         record = {
             'timestamp': datetime.now().isoformat(),
             'prediction': prediction,
@@ -95,7 +85,6 @@ class ChickenRestockPredictor:
         self.save_history()
 
     def get_historical_accuracy(self, days: int = 30):
-        """Calculate prediction accuracy over last N days"""
         if not self.history:
             return None
 
@@ -127,7 +116,6 @@ class ChickenRestockPredictor:
         return None
 
     def fetch_current_stock(self) -> Dict:
-        """Fetch current stock levels from API"""
         try:
             response = requests.get(self.api_url, timeout=10)
             data = response.json()
@@ -136,13 +124,11 @@ class ChickenRestockPredictor:
                 factory_stock = 0
                 kiosk_stock = 0
 
-                # Get factory stock for Marinated Chicken
                 for item in data.get('factory_data', []):
                     if item['item_name'] == 'Marinated Chicken':
                         factory_stock = int(item['stock_count'])
                         break
 
-                # Get total kiosk stock for Marinated Chicken across all kiosks
                 for kiosk in data.get('kiosk_data', []):
                     for item in kiosk.get('items', []):
                         if item['item_name'] == 'Marinated Chicken':
@@ -160,7 +146,6 @@ class ChickenRestockPredictor:
             return {'factory_stock': 0, 'kiosk_stock': 0}
 
     def parse_date_range(self, date_str):
-        """Extract end date from date range string"""
         try:
             parts = date_str.split(' - ')
             if len(parts) == 2:
@@ -171,27 +156,20 @@ class ChickenRestockPredictor:
             return None
 
     def get_current_price(self) -> float:
-        """Get current ex-farm chicken price from CSV (from /tmp copy)"""
         try:
             df = pd.read_csv(TMP_CSV_PATH)
             df['end_date'] = df['Date_Range'].apply(self.parse_date_range)
             df = df.dropna(subset=['end_date'])
-
             latest_row = df.sort_values('end_date', ascending=False).iloc[0]
-            latest_price = latest_row['Avg_Price']
-
-            return float(latest_price)
-
+            return float(latest_row['Avg_Price'])
         except Exception as e:
             print(f"Error reading price data: {e}")
-            return 6.5  # Default fallback price
+            return 6.5
 
     def _get_seasonal_price_factor(self, target_date: datetime) -> float:
-        """Calculate seasonal price adjustment factor"""
         month = target_date.month
         day = target_date.day
 
-        # CN, Ramadan, etc. (same as your original)
         if (month == 1 and day > 15) or (month == 2 and day < 15):
             days_to_cny = abs((datetime(2025, 1, 29) - target_date).days)
             if days_to_cny < 7:
@@ -218,7 +196,6 @@ class ChickenRestockPredictor:
             return 0.0
 
     def get_price_forecast(self, target_date: datetime) -> Dict:
-        """Forecast logic kept identical to your original"""
         try:
             df = pd.read_csv(TMP_CSV_PATH)
             df['end_date'] = df['Date_Range'].apply(self.parse_date_range)
@@ -311,7 +288,6 @@ class ChickenRestockPredictor:
             return 0.0
 
     def get_calendar_events(self, target_date: datetime) -> Dict:
-        # (same calendar mapping as your original — copied verbatim)
         calendar_events = {
             '2024-12-25': {'name': 'Christmas', 'factor': 0.30, 'pre_days': 3, 'post_days': 1},
             '2025-01-01': {'name': 'New Year', 'factor': 0.25, 'pre_days': 2, 'post_days': 1},
@@ -328,9 +304,11 @@ class ChickenRestockPredictor:
             '2025-12-25': {'name': 'Christmas', 'factor': 0.30, 'pre_days': 3, 'post_days': 1},
             '2026-01-01': {'name': 'New Year', 'factor': 0.25, 'pre_days': 2, 'post_days': 1},
         }
+        
         ramadan_periods = [
             {'start': datetime(2025, 3, 1), 'end': datetime(2025, 3, 30), 'factor': 0.15}
         ]
+        
         school_holidays = [
             {'start': datetime(2024, 11, 23), 'end': datetime(2025, 1, 5), 'name': 'Year End', 'factor': 0.15},
             {'start': datetime(2025, 3, 22), 'end': datetime(2025, 3, 30), 'name': 'Mid Year', 'factor': 0.12},
@@ -394,11 +372,11 @@ class ChickenRestockPredictor:
     def calculate_day_of_week_factor(self, target_date: datetime) -> float:
         weekday = target_date.weekday()
 
-        if weekday == 5:  # Saturday
+        if weekday == 5:
             return 0.15
-        elif weekday == 3:  # Thursday
+        elif weekday == 3:
             return 0.05
-        elif weekday == 0:  # Monday
+        elif weekday == 0:
             return 0.0
         else:
             return 0.0
@@ -414,7 +392,6 @@ class ChickenRestockPredictor:
 
         stock_data = self.fetch_current_stock()
 
-        # Get price (current or forecasted based on target date)
         days_ahead = (target_date - datetime.now()).days
         if days_ahead > 3:
             price_info = self.get_price_forecast(target_date)
@@ -554,15 +531,12 @@ class ChickenRestockPredictor:
         except Exception as e:
             return {'success': False, 'error': str(e)}
 
-# Initialize predictor (CSV in project root will be copied into /tmp on cold start)
+# Initialize predictor
 predictor = ChickenRestockPredictor(
-    api_url="https://kimiez-storage.vercel.app/api/analytics/96e27e560a23a5a21978005c3d69add802bfa5b9be3cb6c1f7735e51db80bfe2/overview",
-    csv_price_path="ExFarmPrice.csv"
+    api_url="https://kimiez-storage.vercel.app/api/analytics/96e27e560a23a5a21978005c3d69add802bfa5b9be3cb6c1f7735e51db80bfe2/overview"
 )
 
-# ----------------------
-# API Endpoints (same as your original)
-# ----------------------
+# API Routes
 @app.route('/api/predict', methods=['GET'])
 def get_prediction():
     try:
@@ -620,7 +594,6 @@ def update_price():
         if not date_range or new_price is None:
             return jsonify({'success': False, 'error': 'Missing required fields'}), 400
 
-        # Append to tmp CSV
         df = pd.read_csv(TMP_CSV_PATH)
         new_row = pd.DataFrame([{'Date_Range': date_range, 'Avg_Price': new_price}])
         df = pd.concat([df, new_row], ignore_index=True)
@@ -628,7 +601,7 @@ def update_price():
 
         return jsonify({
             'success': True,
-            'message': 'Price updated successfully (ephemeral)',
+            'message': 'Price updated successfully',
             'new_price': new_price,
             'date_range': date_range
         })
@@ -677,7 +650,7 @@ def record_actual():
         prediction = predictor.predict_restock_quantity(target_date)
         predictor.add_historical_record(prediction, actual_quantity)
 
-        return jsonify({'success': True, 'message': 'Actual quantity recorded (ephemeral)'})
+        return jsonify({'success': True, 'message': 'Actual quantity recorded'})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -726,14 +699,22 @@ def get_alerts():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/health', methods=['GET'])
+@app.route('/api/health', methods=['GET'])
 def health_check():
     return jsonify({'status': 'healthy', 'timestamp': datetime.now().isoformat()})
 
-# Vercel WSGI handler (exposes the app callable)
-def handler(environ, start_response):
-    return app(environ, start_response)
-
-# Local debug helper
-if __name__ == '__main__':
-    print("Starting local Flask server for debugging")
-    app.run(debug=True, host='0.0.0.0', port=5000)
+@app.route('/', methods=['GET'])
+def root():
+    return jsonify({
+        'message': 'Chicken Restock Predictor API',
+        'status': 'running',
+        'endpoints': [
+            '/api/predict',
+            '/api/predict/week',
+            '/api/price/current',
+            '/api/price/forecast',
+            '/api/price/history',
+            '/api/alerts',
+            '/health'
+        ]
+    })
