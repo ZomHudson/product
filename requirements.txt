@@ -1,11 +1,16 @@
-# Vercel-optimized dependencies
-# Keep package size under 250MB
-
-Flask==2.3.3
-Werkzeug==2.3.7
+# Core Flask
+Flask==3.0.0
 flask-cors==4.0.0
+
+# HTTP Requests
 requests==2.31.0
-pandas==2.0.3
-numpy==1.24.3
+
+# Data Processing
+pandas==2.1.4
+numpy==1.26.2
+
+# Environment Variables
 python-dotenv==1.0.0
-pytz==2023.3
+
+# Production Server (for deployment)
+gunicorn==21.2.0
