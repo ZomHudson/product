@@ -2,7 +2,7 @@
   "version": 2,
   "builds": [
     {
-      "src": "app.py",
+      "src": "index.py",
       "use": "@vercel/python",
       "config": {
         "maxLambdaSize": "15mb",
@@ -13,13 +13,10 @@
   "routes": [
     {
       "src": "/(.*)",
-      "dest": "app.py"
+      "dest": "index.py"
     }
   ],
-  "functions": {
-    "app.py": {
-      "memory": 1024,
-      "maxDuration": 10
-    }
+  "env": {
+    "CALENDARIFIC_API_KEY": "GvWPGX5LOuqPKg4BjMUHkOXRSe8VsVc4"
   }
 }
