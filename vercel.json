@@ -16,7 +16,10 @@
       "dest": "app.py"
     }
   ],
-  "env": {
-    "CALENDARIFIC_API_KEY": "@calendarific_api_key"
+  "functions": {
+    "app.py": {
+      "memory": 1024,
+      "maxDuration": 10
+    }
   }
 }
