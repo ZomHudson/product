@@ -125,13 +125,13 @@ class ChickenRestockPredictor:
                 kiosk_stock = 0
 
                 for item in data.get('factory_data', []):
-                    if item['item_id'] == '11':
+                    if item['item_id'] == 11:
                         factory_stock = int(item['stock_count'])
                         break
 
                 for kiosk in data.get('kiosk_data', []):
                     for item in kiosk.get('items', []):
-                        if item['item_id'] == '11':
+                        if item['item_id'] == 11:
                             kiosk_stock += int(item['stock_count'])
 
                 return {
@@ -718,4 +718,5 @@ def root():
             '/health'
         ]
     })
+
 
