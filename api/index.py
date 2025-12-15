@@ -68,33 +68,13 @@ def ensure_tmp_csv_exists():
 ensure_tmp_csv_exists()
 
 class LiveCalendarService:
-    """Service to fetch Malaysian holidays from Calendarific API with fallback"""
+    """Service to fetch Malaysian holidays from Calendarific API"""
     
     def __init__(self, api_key: str = None):
         self.calendarific_api_key = api_key
         self.cache = {}
         self.cache_expiry = {}
-        self.fallback_events = self._get_fallback_events()
         
-    def _get_fallback_events(self) -> Dict:
-        """Static fallback events if API fails"""
-        return {
-            '2024-12-25': {'name': 'Christmas', 'factor': 0.30, 'pre_days': 3, 'post_days': 1},
-            '2025-01-01': {'name': 'New Year', 'factor': 0.25, 'pre_days': 2, 'post_days': 1},
-            '2025-01-29': {'name': 'Chinese New Year', 'factor': 0.40, 'pre_days': 5, 'post_days': 2},
-            '2025-01-30': {'name': 'Chinese New Year (Day 2)', 'factor': 0.35, 'pre_days': 4, 'post_days': 2},
-            '2025-03-31': {'name': 'Hari Raya Aidilfitri', 'factor': 0.50, 'pre_days': 5, 'post_days': 2},
-            '2025-04-01': {'name': 'Hari Raya Aidilfitri (Day 2)', 'factor': 0.45, 'pre_days': 4, 'post_days': 2},
-            '2025-05-01': {'name': 'Labour Day', 'factor': 0.20, 'pre_days': 1, 'post_days': 0},
-            '2025-05-12': {'name': 'Wesak Day', 'factor': 0.15, 'pre_days': 1, 'post_days': 0},
-            '2025-06-07': {'name': 'Hari Raya Aidiladha', 'factor': 0.30, 'pre_days': 3, 'post_days': 1},
-            '2025-08-31': {'name': 'Merdeka Day', 'factor': 0.20, 'pre_days': 2, 'post_days': 0},
-            '2025-09-16': {'name': 'Malaysia Day', 'factor': 0.20, 'pre_days': 2, 'post_days': 0},
-            '2025-10-20': {'name': 'Deepavali', 'factor': 0.25, 'pre_days': 3, 'post_days': 1},
-            '2025-12-25': {'name': 'Christmas', 'factor': 0.30, 'pre_days': 3, 'post_days': 1},
-            '2026-01-01': {'name': 'New Year', 'factor': 0.25, 'pre_days': 2, 'post_days': 1},
-        }
-    
     def get_malaysian_holidays(self, year: int) -> List[Dict]:
         """Fetch Malaysian public holidays from Calendarific API"""
         cache_key = f"holidays_{year}"
@@ -105,7 +85,7 @@ class LiveCalendarService:
                 return self.cache[cache_key]
         
         if not self.calendarific_api_key:
-            print("No Calendarific API key provided, using fallback events")
+            print("No Calendarific API key provided, cannot fetch holidays")
             return []
         
         try:
@@ -166,7 +146,17 @@ class LiveCalendarService:
             return {'factor': 0.15, 'pre_days': 1, 'post_days': 0}
     
     def get_calendar_events(self, target_date: datetime) -> Dict:
-        """Get calendar events for a specific date with live API data and fallback"""
+        """Get calendar events for a specific date from live API"""
+        
+        if not self.calendarific_api_key:
+            print("No Calendarific API key configured, returning normal day")
+            return {
+                'has_event': False,
+                'event_name': 'Normal day (no calendar data)',
+                'factor': 0.0,
+                'type': 'normal',
+                'source': 'no_api_key'
+            }
         
         try:
             current_year = datetime.now().year
@@ -178,15 +168,19 @@ class LiveCalendarService:
             if target_year == current_year + 1:
                 holidays.extend(self.get_malaysian_holidays(current_year + 1))
             
-            if holidays:
-                result = self._process_holidays(target_date, holidays, 'live_api')
-                if result['has_event']:
-                    return result
-        
+            if not holidays:
+                print(f"No holiday data available for {target_date}")
+                return self._get_rule_based_events(target_date)
+            
+            result = self._process_holidays(target_date, holidays, 'live_api')
+            if result['has_event']:
+                return result
+            else:
+                return self._get_rule_based_events(target_date)
+                
         except Exception as e:
             print(f"Error in live calendar fetch: {e}")
-        
-        return self._get_fallback_calendar_events(target_date)
+            return self._get_rule_based_events(target_date)
     
     def _process_holidays(self, target_date: datetime, holidays: List[Dict], source: str) -> Dict:
         """Process holidays list and determine if target date has events"""
@@ -232,47 +226,11 @@ class LiveCalendarService:
         
         return {'has_event': False}
     
-    def _get_fallback_calendar_events(self, target_date: datetime) -> Dict:
-        """Use static events as fallback"""
-        
-        target_date_str = target_date.strftime('%Y-%m-%d')
-        
-        if target_date_str in self.fallback_events:
-            event = self.fallback_events[target_date_str]
-            return {
-                'has_event': True,
-                'event_name': event['name'],
-                'factor': event['factor'],
-                'type': 'festival',
-                'source': 'fallback'
-            }
-        
-        for date_str, event in self.fallback_events.items():
-            event_date = datetime.strptime(date_str, '%Y-%m-%d')
-            days_before = (event_date - target_date).days
-            
-            if 0 < days_before <= event['pre_days']:
-                proximity_factor = event['factor'] * (1 - days_before / event['pre_days']) * 0.7
-                return {
-                    'has_event': True,
-                    'event_name': f"{days_before} days before {event['name']}",
-                    'factor': proximity_factor,
-                    'type': 'pre-festival',
-                    'source': 'fallback'
-                }
-            
-            days_after = (target_date - event_date).days
-            if 0 < days_after <= event['post_days']:
-                return {
-                    'has_event': True,
-                    'event_name': f"{days_after} days after {event['name']}",
-                    'factor': -0.25,
-                    'type': 'post-festival',
-                    'source': 'fallback'
-                }
+    def _get_rule_based_events(self, target_date: datetime) -> Dict:
+        """Get rule-based events when no holiday data is available"""
         
         ramadan_info = self._check_ramadan_period(target_date)
-        if ramadan_info['is_ramadan']:
+        if ramadan_info['has_event']:
             return ramadan_info
         
         school_holiday_info = self._check_school_holidays(target_date)
@@ -297,10 +255,11 @@ class LiveCalendarService:
         }
     
     def _check_ramadan_period(self, target_date: datetime) -> Dict:
-        """Check if date falls during Ramadan"""
+        """Check if date falls during Ramadan (approximate dates)"""
         ramadan_periods = {
             2025: {'start': datetime(2025, 3, 1), 'end': datetime(2025, 3, 30)},
             2026: {'start': datetime(2026, 2, 18), 'end': datetime(2026, 3, 19)},
+            2027: {'start': datetime(2027, 2, 8), 'end': datetime(2027, 3, 9)},
         }
         
         year = target_date.year
@@ -311,7 +270,6 @@ class LiveCalendarService:
                 if days_to_end <= 14:
                     ramadan_factor = 0.15 + (14 - days_to_end) / 14 * 0.20
                     return {
-                        'is_ramadan': True,
                         'has_event': True,
                         'event_name': 'Ramadan (approaching Raya)',
                         'factor': ramadan_factor,
@@ -320,7 +278,6 @@ class LiveCalendarService:
                     }
                 else:
                     return {
-                        'is_ramadan': True,
                         'has_event': True,
                         'event_name': 'Ramadan',
                         'factor': 0.10,
@@ -328,16 +285,20 @@ class LiveCalendarService:
                         'source': 'calculated'
                     }
         
-        return {'is_ramadan': False}
+        return {'has_event': False}
     
     def _check_school_holidays(self, target_date: datetime) -> Dict:
-        """Check school holiday periods"""
+        """Check approximate school holiday periods"""
         school_holidays = [
             {'start': datetime(2024, 11, 23), 'end': datetime(2025, 1, 5), 'name': 'Year End', 'factor': 0.15},
             {'start': datetime(2025, 3, 22), 'end': datetime(2025, 3, 30), 'name': 'Mid Year', 'factor': 0.12},
             {'start': datetime(2025, 5, 24), 'end': datetime(2025, 6, 8), 'name': 'Mid Year', 'factor': 0.12},
             {'start': datetime(2025, 8, 16), 'end': datetime(2025, 8, 24), 'name': 'Short Break', 'factor': 0.10},
             {'start': datetime(2025, 11, 22), 'end': datetime(2026, 1, 4), 'name': 'Year End', 'factor': 0.15},
+            {'start': datetime(2026, 3, 28), 'end': datetime(2026, 4, 5), 'name': 'Mid Year', 'factor': 0.12},
+            {'start': datetime(2026, 5, 23), 'end': datetime(2026, 6, 7), 'name': 'Mid Year', 'factor': 0.12},
+            {'start': datetime(2026, 8, 22), 'end': datetime(2026, 8, 30), 'name': 'Short Break', 'factor': 0.10},
+            {'start': datetime(2026, 11, 21), 'end': datetime(2027, 1, 3), 'name': 'Year End', 'factor': 0.15},
         ]
         
         for holiday in school_holidays:
@@ -848,7 +809,7 @@ predictor = ChickenRestockPredictor(
     api_url="https://kimiez-storage.vercel.app/api/analytics/96e27e560a23a5a21978005c3d69add802bfa5b9be3cb6c1f7735e51db80bfe2/overview"
 )
 
-# API Routes
+# API Routes (remain the same as before)
 @app.route('/api/predict', methods=['GET'])
 def get_prediction():
     try:
@@ -996,7 +957,7 @@ def get_alerts():
         if prediction['demand_level'] in ['High', 'Medium-High']:
             alerts.append({
                 'type': 'info',
-                'message': f'{prediction["demand_level"]} demand period approaching',
+                'message': f'{prediction['demand_level']} demand period approaching',
                 'detail': f"{prediction['recommendation']} Event: {prediction['calendar_event']['event_name']}",
                 'timestamp': datetime.now().isoformat()
             })
@@ -1027,7 +988,7 @@ def test_calendar():
             'success': True,
             'date': date_str,
             'event_info': event_info,
-            'api_status': 'working' if event_info.get('source') == 'live_api' else 'using_fallback',
+            'api_status': 'working' if event_info.get('source') == 'live_api' else 'rule_based',
             'has_api_key': bool(os.getenv('CALENDARIFIC_API_KEY'))
         })
     except Exception as e:
@@ -1045,7 +1006,7 @@ def get_holidays():
             'year': year,
             'count': len(holidays),
             'holidays': holidays,
-            'source': 'live_api' if holidays else 'fallback'
+            'source': 'live_api' if holidays else 'no_data'
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -1078,8 +1039,8 @@ def root():
     return jsonify({
         'message': 'Chicken Restock Demand Predictor API',
         'status': 'running',
-        'version': '2.0 - Demand Levels',
-        'calendar_integration': 'live' if os.getenv('CALENDARIFIC_API_KEY') else 'fallback',
+        'version': '2.0 - Demand Levels (No Static Calendar)',
+        'calendar_integration': 'live_api_only' if os.getenv('CALENDARIFIC_API_KEY') else 'no_api_key',
         'demand_levels': ['Low', 'Medium-Low', 'Medium', 'Medium-High', 'High'],
         'endpoints': [
             '/api/predict - Get demand prediction',
@@ -1096,3 +1057,4 @@ def root():
             '/debug - Debug info'
         ]
     })
+
