@@ -7,10 +7,10 @@ import numpy as np
 from typing import Dict, List
 import json
 import os
-from dotenv import load_dotenv
+# from dotenv import load_dotenv
 
 # Load environment variables
-load_dotenv()
+# load_dotenv()
 
 app = Flask(__name__)
 CORS(app)
@@ -1014,5 +1014,7 @@ def root():
         ]
     })
 
-if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+# if __name__ == '__main__':
+#     app.run(debug=True, host='0.0.0.0', port=5000)
+def handler(environ, start_response):
+    return app(environ, start_response)
