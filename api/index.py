@@ -9,17 +9,12 @@ import json
 import os
 import sys
 
-# Load environment variables
-# load_dotenv()
-
 app = Flask(__name__)
 CORS(app)
 
-# Use /tmp for serverless writable area
 TMP_HISTORY_PATH = "/tmp/prediction_history.json"
 TMP_CSV_PATH = "/tmp/ExFarmPrice.csv"
 
-# Debug: Print environment info
 print(f"Python version: {sys.version}")
 print(f"Current directory: {os.getcwd()}")
 print(f"Files in directory: {os.listdir('.')}")
@@ -70,10 +65,11 @@ def ensure_tmp_csv_exists():
             with open(TMP_CSV_PATH, "w") as f:
                 f.write("Date_Range,Avg_Price\n01.01.2024 - 07.01.2024,6.50")
 
-# Initialize CSV on startup
 ensure_tmp_csv_exists()
 
 class LiveCalendarService:
+    """Service to fetch Malaysian holidays from Calendarific API with fallback"""
+    
     def __init__(self, api_key: str = None):
         self.calendarific_api_key = api_key
         self.cache = {}
@@ -81,6 +77,7 @@ class LiveCalendarService:
         self.fallback_events = self._get_fallback_events()
         
     def _get_fallback_events(self) -> Dict:
+        """Static fallback events if API fails"""
         return {
             '2024-12-25': {'name': 'Christmas', 'factor': 0.30, 'pre_days': 3, 'post_days': 1},
             '2025-01-01': {'name': 'New Year', 'factor': 0.25, 'pre_days': 2, 'post_days': 1},
@@ -99,6 +96,7 @@ class LiveCalendarService:
         }
     
     def get_malaysian_holidays(self, year: int) -> List[Dict]:
+        """Fetch Malaysian public holidays from Calendarific API"""
         cache_key = f"holidays_{year}"
         
         if cache_key in self.cache:
@@ -146,6 +144,8 @@ class LiveCalendarService:
             return []
     
     def get_event_factor(self, holiday_name: str, holiday_type: str) -> Dict:
+        """Determine demand factor based on holiday type and name"""
+        
         major_festivals = {
             'Chinese New Year': {'factor': 0.40, 'pre_days': 5, 'post_days': 2},
             'Hari Raya Aidilfitri': {'factor': 0.50, 'pre_days': 5, 'post_days': 2},
@@ -166,6 +166,8 @@ class LiveCalendarService:
             return {'factor': 0.15, 'pre_days': 1, 'post_days': 0}
     
     def get_calendar_events(self, target_date: datetime) -> Dict:
+        """Get calendar events for a specific date with live API data and fallback"""
+        
         try:
             current_year = datetime.now().year
             target_year = target_date.year
@@ -187,6 +189,8 @@ class LiveCalendarService:
         return self._get_fallback_calendar_events(target_date)
     
     def _process_holidays(self, target_date: datetime, holidays: List[Dict], source: str) -> Dict:
+        """Process holidays list and determine if target date has events"""
+        
         target_date_str = target_date.strftime('%Y-%m-%d')
         
         for holiday in holidays:
@@ -229,6 +233,8 @@ class LiveCalendarService:
         return {'has_event': False}
     
     def _get_fallback_calendar_events(self, target_date: datetime) -> Dict:
+        """Use static events as fallback"""
+        
         target_date_str = target_date.strftime('%Y-%m-%d')
         
         if target_date_str in self.fallback_events:
@@ -291,6 +297,7 @@ class LiveCalendarService:
         }
     
     def _check_ramadan_period(self, target_date: datetime) -> Dict:
+        """Check if date falls during Ramadan"""
         ramadan_periods = {
             2025: {'start': datetime(2025, 3, 1), 'end': datetime(2025, 3, 30)},
             2026: {'start': datetime(2026, 2, 18), 'end': datetime(2026, 3, 19)},
@@ -324,6 +331,7 @@ class LiveCalendarService:
         return {'is_ramadan': False}
     
     def _check_school_holidays(self, target_date: datetime) -> Dict:
+        """Check school holiday periods"""
         school_holidays = [
             {'start': datetime(2024, 11, 23), 'end': datetime(2025, 1, 5), 'name': 'Year End', 'factor': 0.15},
             {'start': datetime(2025, 3, 22), 'end': datetime(2025, 3, 30), 'name': 'Mid Year', 'factor': 0.12},
@@ -348,9 +356,17 @@ class LiveCalendarService:
 class ChickenRestockPredictor:
     def __init__(self, api_url: str):
         self.api_url = api_url
-        self.BASE_DEMAND = 1200
         self.RESTOCK_DAYS = [0, 3, 5]
         self.history_file = TMP_HISTORY_PATH
+        
+        # Demand level thresholds based on total adjustment factor
+        self.DEMAND_THRESHOLDS = {
+            'low': -0.15,      # total_adjustment < -0.15
+            'medium_low': 0.0, # -0.15 <= total_adjustment < 0.0
+            'medium': 0.15,    # 0.0 <= total_adjustment < 0.15
+            'medium_high': 0.30, # 0.15 <= total_adjustment < 0.30
+            'high': 0.30       # total_adjustment >= 0.30
+        }
         
         calendarific_key = os.getenv('CALENDARIFIC_API_KEY', '')
         self.calendar_service = LiveCalendarService(calendarific_key)
@@ -380,7 +396,7 @@ class ChickenRestockPredictor:
         record = {
             'timestamp': datetime.now().isoformat(),
             'prediction': prediction,
-            'actual_demand': actual
+            'actual': actual
         }
         self.history.append(record)
         self.save_history()
@@ -393,26 +409,23 @@ class ChickenRestockPredictor:
         recent_history = [
             h for h in self.history
             if datetime.fromisoformat(h['timestamp']) > cutoff_date
-            and h.get('actual_demand') is not None
+            and h.get('actual') is not None
         ]
 
         if not recent_history:
             return None
 
-        correct_predictions = 0
-        for record in recent_history:
-            predicted = record['prediction']['demand_level']['level']
-            actual = record['actual_demand']
-            if predicted == actual:
-                correct_predictions += 1
-
-        accuracy = (correct_predictions / len(recent_history)) * 100
+        correct_predictions = sum(1 for h in recent_history 
+                                 if h['prediction']['demand_level'] == h['actual'])
+        
+        total_predictions = len(recent_history)
+        accuracy = (correct_predictions / total_predictions * 100) if total_predictions > 0 else 0
 
         return {
-            'accuracy_percentage': float(accuracy),
+            'accuracy_percentage': round(accuracy, 2),
             'correct_predictions': correct_predictions,
-            'total_predictions': len(recent_history),
-            'accuracy_level': 'High' if accuracy >= 70 else 'Medium' if accuracy >= 50 else 'Low'
+            'total_predictions': total_predictions,
+            'period_days': days
         }
 
     def fetch_current_stock(self) -> Dict:
@@ -602,6 +615,7 @@ class ChickenRestockPredictor:
             return 0.0
 
     def get_calendar_events(self, target_date: datetime) -> Dict:
+        """Get calendar events using live calendar service"""
         return self.calendar_service.get_calendar_events(target_date)
 
     def calculate_inventory_factor(self, factory_stock: int, kiosk_stock: int) -> float:
@@ -632,57 +646,46 @@ class ChickenRestockPredictor:
         else:
             return 0.0
 
-    def _calculate_demand_level(self, total_adjustment: float) -> Dict:
-        adjusted_demand = self.BASE_DEMAND * (1 + total_adjustment)
+    def determine_demand_level(self, total_adjustment: float) -> Dict:
+        """Determine demand level based on total adjustment factor"""
         
-        if adjusted_demand >= 1600:
-            level = "Very High"
-            description = "Extremely high demand expected"
-        elif adjusted_demand >= 1400:
+        if total_adjustment >= self.DEMAND_THRESHOLDS['high']:
             level = "High"
-            description = "Above normal demand expected"
-        elif adjusted_demand >= 1100:
+            description = "Significantly elevated demand expected"
+            color = "#dc2626"  # Red
+            recommendation = "Prepare maximum stock. Consider ordering extra supplies."
+        elif total_adjustment >= self.DEMAND_THRESHOLDS['medium_high']:
             level = "Medium-High"
-            description = "Slightly above normal demand"
-        elif adjusted_demand >= 900:
+            description = "Above average demand anticipated"
+            color = "#f97316"  # Orange
+            recommendation = "Stock above normal levels to meet increased demand."
+        elif total_adjustment >= self.DEMAND_THRESHOLDS['medium']:
             level = "Medium"
-            description = "Normal demand expected"
-        elif adjusted_demand >= 700:
-            level = "Low-Medium"
-            description = "Slightly below normal demand"
-        elif adjusted_demand >= 500:
+            description = "Normal to slightly elevated demand"
+            color = "#eab308"  # Yellow
+            recommendation = "Maintain standard stock levels with slight buffer."
+        elif total_adjustment >= self.DEMAND_THRESHOLDS['medium_low']:
+            level = "Medium-Low"
+            description = "Normal to slightly below average demand"
+            color = "#22c55e"  # Green
+            recommendation = "Standard stock levels appropriate."
+        else:
             level = "Low"
-            description = "Below normal demand expected"
-        else:
-            level = "Very Low"
-            description = "Very low demand expected"
-        
-        intensity = min(100, max(0, (adjusted_demand - 500) / (2000 - 500) * 100))
-        
-        if level in ["Very High", "High"]:
-            recommended_min = int(adjusted_demand * 1.2)
-            recommended_max = int(adjusted_demand * 1.5)
-        elif level == "Medium-High":
-            recommended_min = int(adjusted_demand * 1.1)
-            recommended_max = int(adjusted_demand * 1.3)
-        elif level == "Medium":
-            recommended_min = int(adjusted_demand * 0.9)
-            recommended_max = int(adjusted_demand * 1.1)
-        else:
-            recommended_min = int(adjusted_demand * 0.7)
-            recommended_max = int(adjusted_demand * 0.9)
+            description = "Below average demand expected"
+            color = "#3b82f6"  # Blue
+            recommendation = "Reduce stock levels to avoid excess inventory."
         
         return {
             'level': level,
             'description': description,
-            'intensity_percentage': round(intensity, 1),
-            'adjusted_demand_value': round(adjusted_demand),
-            'recommended_stock_min': recommended_min,
-            'recommended_stock_max': recommended_max,
-            'recommended_stock_optimal': round((recommended_min + recommended_max) / 2)
+            'color': color,
+            'recommendation': recommendation,
+            'adjustment_factor': round(total_adjustment, 3)
         }
 
-    def predict_demand_level(self, target_date: datetime = None) -> Dict:
+    def predict_restock_demand(self, target_date: datetime = None) -> Dict:
+        """Predict demand level instead of quantity"""
+        
         if target_date is None:
             today = datetime.now()
             for i in range(7):
@@ -721,51 +724,40 @@ class ChickenRestockPredictor:
         day_factor = self.calculate_day_of_week_factor(target_date)
 
         total_adjustment = inventory_factor + price_factor + calendar_factor + day_factor
-        demand_level_info = self._calculate_demand_level(total_adjustment)
+        
+        # Determine demand level
+        demand_info = self.determine_demand_level(total_adjustment)
 
         result = {
-            'target_date': target_date.strftime('%Y-%m-%d'),
-            'target_day': target_date.strftime('%A'),
-            'demand_level': demand_level_info,
+            'target_date': target_date.strftime('%Y-%m-%d (%A)'),
+            'demand_level': demand_info['level'],
+            'demand_description': demand_info['description'],
+            'demand_color': demand_info['color'],
+            'recommendation': demand_info['recommendation'],
             'current_stock': {
                 'factory': stock_data['factory_stock'],
                 'kiosk': stock_data['kiosk_stock'],
-                'total': stock_data['factory_stock'] + stock_data['kiosk_stock'],
-                'status': self._get_stock_status(stock_data['factory_stock'] + stock_data['kiosk_stock'])
+                'total': stock_data['factory_stock'] + stock_data['kiosk_stock']
             },
             'factors': {
-                'inventory_factor': round(inventory_factor, 3),
-                'price_factor': round(price_factor, 3),
-                'calendar_factor': round(calendar_factor, 3),
-                'day_of_week_factor': round(day_factor, 3),
-                'total_adjustment': round(total_adjustment, 3),
-                'calendar_event': calendar_info.get('event_name', 'No special events'),
-                'calendar_event_type': calendar_info.get('type', 'normal')
+                'inventory_adjustment': f"{inventory_factor:+.2f} ({inventory_factor*100:+.1f}%)",
+                'price_adjustment': f"{price_factor:+.2f} ({price_factor*100:+.1f}%)",
+                'calendar_adjustment': f"{calendar_factor:+.2f} ({calendar_factor*100:+.1f}%)",
+                'day_of_week_adjustment': f"{day_factor:+.2f} ({day_factor*100:+.1f}%)",
+                'total_adjustment': f"{total_adjustment:+.2f} ({total_adjustment*100:+.1f}%)"
             },
+            'calendar_event': calendar_info,
             'price_info': {
                 'price': current_price,
                 'source': price_source,
                 'confidence': price_info['confidence'],
-                'method': price_info['method']
+                'method': price_info['method'],
+                'forecast_factors': price_info.get('factors', {})
             },
-            'base_demand': self.BASE_DEMAND,
-            'confidence': self._calculate_confidence(total_adjustment, price_info['confidence']),
-            'timestamp': datetime.now().isoformat()
+            'confidence': self._calculate_confidence(total_adjustment, price_info['confidence'])
         }
 
         return result
-
-    def _get_stock_status(self, total_stock: int) -> str:
-        if total_stock < 300:
-            return "Critical"
-        elif total_stock < 500:
-            return "Low"
-        elif total_stock < 1000:
-            return "Adequate"
-        elif total_stock < 1500:
-            return "Good"
-        else:
-            return "High"
 
     def _calculate_confidence(self, total_adjustment: float, price_confidence: str) -> str:
         if abs(total_adjustment) > 0.5:
@@ -802,7 +794,7 @@ class ChickenRestockPredictor:
         for i in range(14):
             check_date = today + timedelta(days=i)
             if check_date.weekday() in self.RESTOCK_DAYS:
-                result = self.predict_demand_level(check_date)
+                result = self.predict_restock_demand(check_date)
                 predictions.append(result)
 
         return predictions
@@ -860,7 +852,7 @@ predictor = ChickenRestockPredictor(
 @app.route('/api/predict', methods=['GET'])
 def get_prediction():
     try:
-        result = predictor.predict_demand_level()
+        result = predictor.predict_restock_demand()
         return jsonify({'success': True, 'data': result})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -961,17 +953,17 @@ def record_actual():
     try:
         data = request.json
         date = data.get('date')
-        actual_demand = data.get('actual_demand')
+        actual_demand = data.get('actual_demand')  # Should be "Low", "Medium-Low", "Medium", "Medium-High", or "High"
 
-        if not date or actual_demand is None:
+        if not date or not actual_demand:
             return jsonify({'success': False, 'error': 'Missing required fields'}), 400
 
-        valid_levels = ['Very Low', 'Low', 'Low-Medium', 'Medium', 'Medium-High', 'High', 'Very High']
+        valid_levels = ["Low", "Medium-Low", "Medium", "Medium-High", "High"]
         if actual_demand not in valid_levels:
-            return jsonify({'success': False, 'error': f'Invalid demand level. Use: {", ".join(valid_levels)}'}), 400
+            return jsonify({'success': False, 'error': f'Invalid demand level. Must be one of: {valid_levels}'}), 400
 
         target_date = datetime.strptime(date, '%Y-%m-%d')
-        prediction = predictor.predict_demand_level(target_date)
+        prediction = predictor.predict_restock_demand(target_date)
         predictor.add_historical_record(prediction, actual_demand)
 
         return jsonify({'success': True, 'message': 'Actual demand level recorded'})
@@ -981,16 +973,15 @@ def record_actual():
 @app.route('/api/alerts', methods=['GET'])
 def get_alerts():
     try:
-        prediction = predictor.predict_demand_level()
+        prediction = predictor.predict_restock_demand()
         stock = prediction['current_stock']['total']
-        demand_level = prediction['demand_level']['level']
         alerts = []
 
         if stock < 300:
             alerts.append({
                 'type': 'critical',
-                'message': 'Critical stock level',
-                'detail': f"Current stock ({stock}) is critically low",
+                'message': 'Critical stock level detected',
+                'detail': f"Current stock ({stock}) is below minimum threshold of 300 units",
                 'timestamp': datetime.now().isoformat()
             })
 
@@ -998,15 +989,15 @@ def get_alerts():
             alerts.append({
                 'type': 'warning',
                 'message': 'Low stock warning',
-                'detail': f"Stock level at {stock} units",
+                'detail': f"Stock level at {stock} units. Consider restocking soon.",
                 'timestamp': datetime.now().isoformat()
             })
 
-        if demand_level in ['High', 'Very High']:
+        if prediction['demand_level'] in ['High', 'Medium-High']:
             alerts.append({
                 'type': 'info',
-                'message': 'High demand period approaching',
-                'detail': f"{demand_level} demand predicted",
+                'message': f'{prediction["demand_level"]} demand period approaching',
+                'detail': f"{prediction['recommendation']} Event: {prediction['calendar_event']['event_name']}",
                 'timestamp': datetime.now().isoformat()
             })
 
@@ -1015,15 +1006,7 @@ def get_alerts():
             alerts.append({
                 'type': 'warning',
                 'message': 'High price forecast',
-                'detail': f"Ex-farm price forecasted at RM {price_info['price']:.2f}",
-                'timestamp': datetime.now().isoformat()
-            })
-
-        if demand_level in ['Low', 'Very Low']:
-            alerts.append({
-                'type': 'info',
-                'message': 'Low demand period',
-                'detail': f"{demand_level} demand expected",
+                'detail': f"Ex-farm price forecasted at RM {price_info['price']:.2f} for {prediction['target_date']}",
                 'timestamp': datetime.now().isoformat()
             })
 
@@ -1033,6 +1016,7 @@ def get_alerts():
 
 @app.route('/api/calendar/test', methods=['GET'])
 def test_calendar():
+    """Test endpoint to check calendar integration"""
     try:
         date_str = request.args.get('date', datetime.now().strftime('%Y-%m-%d'))
         target_date = datetime.strptime(date_str, '%Y-%m-%d')
@@ -1051,6 +1035,7 @@ def test_calendar():
 
 @app.route('/api/calendar/holidays', methods=['GET'])
 def get_holidays():
+    """Get all holidays for a specific year"""
     try:
         year = int(request.args.get('year', datetime.now().year))
         holidays = predictor.calendar_service.get_malaysian_holidays(year)
@@ -1076,31 +1061,38 @@ def health_check():
 
 @app.route('/debug', methods=['GET'])
 def debug_info():
+    """Debug endpoint to check system status"""
     return jsonify({
         'status': 'running',
         'python_version': sys.version,
         'current_time': datetime.now().isoformat(),
         'csv_exists': os.path.exists(TMP_CSV_PATH),
         'csv_size': os.path.getsize(TMP_CSV_PATH) if os.path.exists(TMP_CSV_PATH) else 0,
-        'working_dir': os.getcwd()
+        'tmp_files': os.listdir('/tmp') if os.path.exists('/tmp') else [],
+        'working_dir': os.getcwd(),
+        'files_in_dir': os.listdir('.')
     })
 
 @app.route('/', methods=['GET'])
 def root():
     return jsonify({
-        'message': 'Chicken Restock Predictor API',
+        'message': 'Chicken Restock Demand Predictor API',
         'status': 'running',
+        'version': '2.0 - Demand Levels',
         'calendar_integration': 'live' if os.getenv('CALENDARIFIC_API_KEY') else 'fallback',
+        'demand_levels': ['Low', 'Medium-Low', 'Medium', 'Medium-High', 'High'],
         'endpoints': [
-            '/api/predict',
-            '/api/predict/week',
-            '/api/price/current',
-            '/api/price/forecast',
-            '/api/price/history',
-            '/api/alerts',
-            '/api/calendar/test',
-            '/api/calendar/holidays',
-            '/health',
-            '/debug'
+            '/api/predict - Get demand prediction',
+            '/api/predict/week - Get weekly predictions',
+            '/api/price/current - Current price',
+            '/api/price/forecast - Price forecast',
+            '/api/price/history - Price history',
+            '/api/alerts - Get alerts',
+            '/api/record - Record actual demand',
+            '/api/accuracy - Prediction accuracy',
+            '/api/calendar/test - Test calendar',
+            '/api/calendar/holidays - Get holidays',
+            '/health - Health check',
+            '/debug - Debug info'
         ]
     })
