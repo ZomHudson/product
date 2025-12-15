@@ -613,33 +613,27 @@ class ChickenRestockPredictor:
         if total_adjustment >= self.DEMAND_THRESHOLDS['high']:
             level = "High"
             description = "Significantly elevated demand expected"
-            color = "#dc2626"  # Red
             recommendation = "Prepare maximum stock. Consider ordering extra supplies."
         elif total_adjustment >= self.DEMAND_THRESHOLDS['medium_high']:
             level = "Medium-High"
             description = "Above average demand anticipated"
-            color = "#f97316"  # Orange
             recommendation = "Stock above normal levels to meet increased demand."
         elif total_adjustment >= self.DEMAND_THRESHOLDS['medium']:
             level = "Medium"
             description = "Normal to slightly elevated demand"
-            color = "#eab308"  # Yellow
             recommendation = "Maintain standard stock levels with slight buffer."
         elif total_adjustment >= self.DEMAND_THRESHOLDS['medium_low']:
             level = "Medium-Low"
             description = "Normal to slightly below average demand"
-            color = "#22c55e"  # Green
             recommendation = "Standard stock levels appropriate."
         else:
             level = "Low"
             description = "Below average demand expected"
-            color = "#3b82f6"  # Blue
             recommendation = "Reduce stock levels to avoid excess inventory."
         
         return {
             'level': level,
             'description': description,
-            'color': color,
             'recommendation': recommendation,
             'adjustment_factor': round(total_adjustment, 3)
         }
@@ -693,7 +687,6 @@ class ChickenRestockPredictor:
             'target_date': target_date.strftime('%Y-%m-%d (%A)'),
             'demand_level': demand_info['level'],
             'demand_description': demand_info['description'],
-            'demand_color': demand_info['color'],
             'recommendation': demand_info['recommendation'],
             'current_stock': {
                 'factory': stock_data['factory_stock'],
@@ -809,7 +802,7 @@ predictor = ChickenRestockPredictor(
     api_url="https://kimiez-storage.vercel.app/api/analytics/96e27e560a23a5a21978005c3d69add802bfa5b9be3cb6c1f7735e51db80bfe2/overview"
 )
 
-# API Routes (remain the same as before)
+# API Routes
 @app.route('/api/predict', methods=['GET'])
 def get_prediction():
     try:
@@ -1039,7 +1032,7 @@ def root():
     return jsonify({
         'message': 'Chicken Restock Demand Predictor API',
         'status': 'running',
-        'version': '2.0 - Demand Levels (No Static Calendar)',
+        'version': '2.0 - Demand Levels',
         'calendar_integration': 'live_api_only' if os.getenv('CALENDARIFIC_API_KEY') else 'no_api_key',
         'demand_levels': ['Low', 'Medium-Low', 'Medium', 'Medium-High', 'High'],
         'endpoints': [
@@ -1057,4 +1050,3 @@ def root():
             '/debug - Debug info'
         ]
     })
-
