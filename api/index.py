@@ -28,7 +28,6 @@ def ensure_tmp_csv_exists():
     """Copy CSV from project root to /tmp on cold start"""
     if not os.path.exists(TMP_CSV_PATH):
         try:
-            # Try to find CSV in various locations
             possible_paths = [
                 "ExFarmPrice.csv",
                 "../ExFarmPrice.csv",
@@ -51,7 +50,6 @@ def ensure_tmp_csv_exists():
                     break
             
             if not csv_found:
-                # Create minimal template
                 print("Creating default CSV template...")
                 data = """Date_Range,Avg_Price
 01.01.2024 - 07.01.2024,6.50
@@ -69,7 +67,6 @@ def ensure_tmp_csv_exists():
                 print("Created default CSV template")
         except Exception as e:
             print(f"Error preparing tmp CSV: {e}")
-            # Create a very basic CSV
             with open(TMP_CSV_PATH, "w") as f:
                 f.write("Date_Range,Avg_Price\n01.01.2024 - 07.01.2024,6.50")
 
@@ -77,8 +74,6 @@ def ensure_tmp_csv_exists():
 ensure_tmp_csv_exists()
 
 class LiveCalendarService:
-    """Service to fetch Malaysian holidays from Calendarific API with fallback"""
-    
     def __init__(self, api_key: str = None):
         self.calendarific_api_key = api_key
         self.cache = {}
@@ -86,7 +81,6 @@ class LiveCalendarService:
         self.fallback_events = self._get_fallback_events()
         
     def _get_fallback_events(self) -> Dict:
-        """Static fallback events if API fails"""
         return {
             '2024-12-25': {'name': 'Christmas', 'factor': 0.30, 'pre_days': 3, 'post_days': 1},
             '2025-01-01': {'name': 'New Year', 'factor': 0.25, 'pre_days': 2, 'post_days': 1},
@@ -105,16 +99,13 @@ class LiveCalendarService:
         }
     
     def get_malaysian_holidays(self, year: int) -> List[Dict]:
-        """Fetch Malaysian public holidays from Calendarific API"""
         cache_key = f"holidays_{year}"
         
-        # Check cache (valid for 24 hours)
         if cache_key in self.cache:
             if datetime.now() < self.cache_expiry.get(cache_key, datetime.now()):
                 print(f"Using cached holidays for {year}")
                 return self.cache[cache_key]
         
-        # If no API key, return empty (will use fallback)
         if not self.calendarific_api_key:
             print("No Calendarific API key provided, using fallback events")
             return []
@@ -142,7 +133,6 @@ class LiveCalendarService:
                         'description': holiday.get('description', '')
                     })
                 
-                # Cache for 24 hours
                 self.cache[cache_key] = holidays
                 self.cache_expiry[cache_key] = datetime.now() + timedelta(hours=24)
                 print(f"Successfully fetched {len(holidays)} holidays for {year}")
@@ -156,9 +146,6 @@ class LiveCalendarService:
             return []
     
     def get_event_factor(self, holiday_name: str, holiday_type: str) -> Dict:
-        """Determine demand factor based on holiday type and name"""
-        
-        # Major festivals with high demand
         major_festivals = {
             'Chinese New Year': {'factor': 0.40, 'pre_days': 5, 'post_days': 2},
             'Hari Raya Aidilfitri': {'factor': 0.50, 'pre_days': 5, 'post_days': 2},
@@ -169,22 +156,17 @@ class LiveCalendarService:
             'Diwali': {'factor': 0.25, 'pre_days': 3, 'post_days': 1},
         }
         
-        # Check if it's a major festival
         for festival_key, festival_data in major_festivals.items():
             if festival_key.lower() in holiday_name.lower():
                 return festival_data
         
-        # Default factors for other holidays
         if holiday_type == 'national':
             return {'factor': 0.20, 'pre_days': 2, 'post_days': 0}
         else:
             return {'factor': 0.15, 'pre_days': 1, 'post_days': 0}
     
     def get_calendar_events(self, target_date: datetime) -> Dict:
-        """Get calendar events for a specific date with live API data and fallback"""
-        
         try:
-            # Try to fetch from live API first
             current_year = datetime.now().year
             target_year = target_date.year
             
@@ -194,7 +176,6 @@ class LiveCalendarService:
             if target_year == current_year + 1:
                 holidays.extend(self.get_malaysian_holidays(current_year + 1))
             
-            # If we got holidays from API, use them
             if holidays:
                 result = self._process_holidays(target_date, holidays, 'live_api')
                 if result['has_event']:
@@ -203,15 +184,11 @@ class LiveCalendarService:
         except Exception as e:
             print(f"Error in live calendar fetch: {e}")
         
-        # Fallback to static events
         return self._get_fallback_calendar_events(target_date)
     
     def _process_holidays(self, target_date: datetime, holidays: List[Dict], source: str) -> Dict:
-        """Process holidays list and determine if target date has events"""
-        
         target_date_str = target_date.strftime('%Y-%m-%d')
         
-        # Check if target date is a holiday
         for holiday in holidays:
             if holiday['date'] == target_date_str:
                 event_config = self.get_event_factor(holiday['name'], holiday['type'])
@@ -223,7 +200,6 @@ class LiveCalendarService:
                     'source': source
                 }
         
-        # Check proximity to holidays (pre-festival)
         for holiday in holidays:
             holiday_date = datetime.fromisoformat(holiday['date'])
             days_before = (holiday_date - target_date).days
@@ -240,7 +216,6 @@ class LiveCalendarService:
                     'source': source
                 }
             
-            # Check post-festival
             days_after = (target_date - holiday_date).days
             if 0 < days_after <= event_config['post_days']:
                 return {
@@ -254,11 +229,8 @@ class LiveCalendarService:
         return {'has_event': False}
     
     def _get_fallback_calendar_events(self, target_date: datetime) -> Dict:
-        """Use static events as fallback"""
-        
         target_date_str = target_date.strftime('%Y-%m-%d')
         
-        # Check static holidays
         if target_date_str in self.fallback_events:
             event = self.fallback_events[target_date_str]
             return {
@@ -269,7 +241,6 @@ class LiveCalendarService:
                 'source': 'fallback'
             }
         
-        # Check proximity to static holidays
         for date_str, event in self.fallback_events.items():
             event_date = datetime.strptime(date_str, '%Y-%m-%d')
             days_before = (event_date - target_date).days
@@ -294,17 +265,14 @@ class LiveCalendarService:
                     'source': 'fallback'
                 }
         
-        # Check Ramadan period
         ramadan_info = self._check_ramadan_period(target_date)
         if ramadan_info['is_ramadan']:
             return ramadan_info
         
-        # School holidays
         school_holiday_info = self._check_school_holidays(target_date)
         if school_holiday_info['has_event']:
             return school_holiday_info
         
-        # Friday (weekend preparation)
         if target_date.weekday() == 4:
             return {
                 'has_event': True,
@@ -323,7 +291,6 @@ class LiveCalendarService:
         }
     
     def _check_ramadan_period(self, target_date: datetime) -> Dict:
-        """Check if date falls during Ramadan"""
         ramadan_periods = {
             2025: {'start': datetime(2025, 3, 1), 'end': datetime(2025, 3, 30)},
             2026: {'start': datetime(2026, 2, 18), 'end': datetime(2026, 3, 19)},
@@ -357,7 +324,6 @@ class LiveCalendarService:
         return {'is_ramadan': False}
     
     def _check_school_holidays(self, target_date: datetime) -> Dict:
-        """Check school holiday periods"""
         school_holidays = [
             {'start': datetime(2024, 11, 23), 'end': datetime(2025, 1, 5), 'name': 'Year End', 'factor': 0.15},
             {'start': datetime(2025, 3, 22), 'end': datetime(2025, 3, 30), 'name': 'Mid Year', 'factor': 0.12},
@@ -382,13 +348,10 @@ class LiveCalendarService:
 class ChickenRestockPredictor:
     def __init__(self, api_url: str):
         self.api_url = api_url
-        self.MIN_STOCK = 1000
-        self.MAX_STOCK = 2000
         self.BASE_DEMAND = 1200
         self.RESTOCK_DAYS = [0, 3, 5]
         self.history_file = TMP_HISTORY_PATH
         
-        # Initialize live calendar service
         calendarific_key = os.getenv('CALENDARIFIC_API_KEY', '')
         self.calendar_service = LiveCalendarService(calendarific_key)
         
@@ -413,11 +376,11 @@ class ChickenRestockPredictor:
         except Exception as e:
             print(f"Error saving history: {e}")
 
-    def add_historical_record(self, prediction: Dict, actual: int = None):
+    def add_historical_record(self, prediction: Dict, actual: str = None):
         record = {
             'timestamp': datetime.now().isoformat(),
             'prediction': prediction,
-            'actual': actual
+            'actual_demand': actual
         }
         self.history.append(record)
         self.save_history()
@@ -430,28 +393,27 @@ class ChickenRestockPredictor:
         recent_history = [
             h for h in self.history
             if datetime.fromisoformat(h['timestamp']) > cutoff_date
-            and h.get('actual') is not None
+            and h.get('actual_demand') is not None
         ]
 
         if not recent_history:
             return None
 
-        accuracies = []
+        correct_predictions = 0
         for record in recent_history:
-            predicted = record['prediction']['predicted_quantity']
-            actual = record['actual']
-            if actual > 0:
-                accuracy = 100 - abs((predicted - actual) / actual * 100)
-                accuracies.append(max(0, accuracy))
+            predicted = record['prediction']['demand_level']['level']
+            actual = record['actual_demand']
+            if predicted == actual:
+                correct_predictions += 1
 
-        if accuracies:
-            return {
-                'avg_accuracy': float(np.mean(accuracies)),
-                'min_accuracy': float(np.min(accuracies)),
-                'max_accuracy': float(np.max(accuracies)),
-                'total_predictions': len(recent_history)
-            }
-        return None
+        accuracy = (correct_predictions / len(recent_history)) * 100
+
+        return {
+            'accuracy_percentage': float(accuracy),
+            'correct_predictions': correct_predictions,
+            'total_predictions': len(recent_history),
+            'accuracy_level': 'High' if accuracy >= 70 else 'Medium' if accuracy >= 50 else 'Low'
+        }
 
     def fetch_current_stock(self) -> Dict:
         try:
@@ -463,13 +425,13 @@ class ChickenRestockPredictor:
                 kiosk_stock = 0
 
                 for item in data.get('factory_data', []):
-                    if item['item_name'] == 'Marinated Chicken':
+                    if item['item_id'] == 11:
                         factory_stock = int(item['stock_count'])
                         break
 
                 for kiosk in data.get('kiosk_data', []):
                     for item in kiosk.get('items', []):
-                        if item['item_name'] == 'Marinated Chicken':
+                        if item['item_id'] == 11:
                             kiosk_stock += int(item['stock_count'])
 
                 return {
@@ -481,7 +443,6 @@ class ChickenRestockPredictor:
 
         except Exception as e:
             print(f"Error fetching stock data: {e}")
-            # Return default values for testing
             return {'factory_stock': 500, 'kiosk_stock': 300}
 
     def parse_date_range(self, date_str):
@@ -641,7 +602,6 @@ class ChickenRestockPredictor:
             return 0.0
 
     def get_calendar_events(self, target_date: datetime) -> Dict:
-        """Get calendar events using live calendar service"""
         return self.calendar_service.get_calendar_events(target_date)
 
     def calculate_inventory_factor(self, factory_stock: int, kiosk_stock: int) -> float:
@@ -672,7 +632,57 @@ class ChickenRestockPredictor:
         else:
             return 0.0
 
-    def predict_restock_quantity(self, target_date: datetime = None) -> Dict:
+    def _calculate_demand_level(self, total_adjustment: float) -> Dict:
+        adjusted_demand = self.BASE_DEMAND * (1 + total_adjustment)
+        
+        if adjusted_demand >= 1600:
+            level = "Very High"
+            description = "Extremely high demand expected"
+        elif adjusted_demand >= 1400:
+            level = "High"
+            description = "Above normal demand expected"
+        elif adjusted_demand >= 1100:
+            level = "Medium-High"
+            description = "Slightly above normal demand"
+        elif adjusted_demand >= 900:
+            level = "Medium"
+            description = "Normal demand expected"
+        elif adjusted_demand >= 700:
+            level = "Low-Medium"
+            description = "Slightly below normal demand"
+        elif adjusted_demand >= 500:
+            level = "Low"
+            description = "Below normal demand expected"
+        else:
+            level = "Very Low"
+            description = "Very low demand expected"
+        
+        intensity = min(100, max(0, (adjusted_demand - 500) / (2000 - 500) * 100))
+        
+        if level in ["Very High", "High"]:
+            recommended_min = int(adjusted_demand * 1.2)
+            recommended_max = int(adjusted_demand * 1.5)
+        elif level == "Medium-High":
+            recommended_min = int(adjusted_demand * 1.1)
+            recommended_max = int(adjusted_demand * 1.3)
+        elif level == "Medium":
+            recommended_min = int(adjusted_demand * 0.9)
+            recommended_max = int(adjusted_demand * 1.1)
+        else:
+            recommended_min = int(adjusted_demand * 0.7)
+            recommended_max = int(adjusted_demand * 0.9)
+        
+        return {
+            'level': level,
+            'description': description,
+            'intensity_percentage': round(intensity, 1),
+            'adjusted_demand_value': round(adjusted_demand),
+            'recommended_stock_min': recommended_min,
+            'recommended_stock_max': recommended_max,
+            'recommended_stock_optimal': round((recommended_min + recommended_max) / 2)
+        }
+
+    def predict_demand_level(self, target_date: datetime = None) -> Dict:
         if target_date is None:
             today = datetime.now()
             for i in range(7):
@@ -711,38 +721,51 @@ class ChickenRestockPredictor:
         day_factor = self.calculate_day_of_week_factor(target_date)
 
         total_adjustment = inventory_factor + price_factor + calendar_factor + day_factor
-        predicted_quantity = self.BASE_DEMAND * (1 + total_adjustment)
-        predicted_quantity = max(self.MIN_STOCK, min(self.MAX_STOCK, predicted_quantity))
-        predicted_quantity = round(predicted_quantity / 50) * 50
+        demand_level_info = self._calculate_demand_level(total_adjustment)
 
         result = {
-            'target_date': target_date.strftime('%Y-%m-%d (%A)'),
-            'predicted_quantity': int(predicted_quantity),
+            'target_date': target_date.strftime('%Y-%m-%d'),
+            'target_day': target_date.strftime('%A'),
+            'demand_level': demand_level_info,
             'current_stock': {
                 'factory': stock_data['factory_stock'],
                 'kiosk': stock_data['kiosk_stock'],
-                'total': stock_data['factory_stock'] + stock_data['kiosk_stock']
+                'total': stock_data['factory_stock'] + stock_data['kiosk_stock'],
+                'status': self._get_stock_status(stock_data['factory_stock'] + stock_data['kiosk_stock'])
             },
             'factors': {
-                'inventory_adjustment': f"{inventory_factor:+.2f} ({inventory_factor*100:+.1f}%)",
-                'price_adjustment': f"{price_factor:+.2f} ({price_factor*100:+.1f}%)",
-                'calendar_adjustment': f"{calendar_factor:+.2f} ({calendar_factor*100:+.1f}%)",
-                'day_of_week_adjustment': f"{day_factor:+.2f} ({day_factor*100:+.1f}%)",
-                'total_adjustment': f"{total_adjustment:+.2f} ({total_adjustment*100:+.1f}%)"
+                'inventory_factor': round(inventory_factor, 3),
+                'price_factor': round(price_factor, 3),
+                'calendar_factor': round(calendar_factor, 3),
+                'day_of_week_factor': round(day_factor, 3),
+                'total_adjustment': round(total_adjustment, 3),
+                'calendar_event': calendar_info.get('event_name', 'No special events'),
+                'calendar_event_type': calendar_info.get('type', 'normal')
             },
-            'calendar_event': calendar_info,
             'price_info': {
                 'price': current_price,
                 'source': price_source,
                 'confidence': price_info['confidence'],
-                'method': price_info['method'],
-                'forecast_factors': price_info.get('factors', {})
+                'method': price_info['method']
             },
             'base_demand': self.BASE_DEMAND,
-            'confidence': self._calculate_confidence(total_adjustment, price_info['confidence'])
+            'confidence': self._calculate_confidence(total_adjustment, price_info['confidence']),
+            'timestamp': datetime.now().isoformat()
         }
 
         return result
+
+    def _get_stock_status(self, total_stock: int) -> str:
+        if total_stock < 300:
+            return "Critical"
+        elif total_stock < 500:
+            return "Low"
+        elif total_stock < 1000:
+            return "Adequate"
+        elif total_stock < 1500:
+            return "Good"
+        else:
+            return "High"
 
     def _calculate_confidence(self, total_adjustment: float, price_confidence: str) -> str:
         if abs(total_adjustment) > 0.5:
@@ -779,7 +802,7 @@ class ChickenRestockPredictor:
         for i in range(14):
             check_date = today + timedelta(days=i)
             if check_date.weekday() in self.RESTOCK_DAYS:
-                result = self.predict_restock_quantity(check_date)
+                result = self.predict_demand_level(check_date)
                 predictions.append(result)
 
         return predictions
@@ -837,7 +860,7 @@ predictor = ChickenRestockPredictor(
 @app.route('/api/predict', methods=['GET'])
 def get_prediction():
     try:
-        result = predictor.predict_restock_quantity()
+        result = predictor.predict_demand_level()
         return jsonify({'success': True, 'data': result})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -938,31 +961,36 @@ def record_actual():
     try:
         data = request.json
         date = data.get('date')
-        actual_quantity = data.get('actual_quantity')
+        actual_demand = data.get('actual_demand')
 
-        if not date or actual_quantity is None:
+        if not date or actual_demand is None:
             return jsonify({'success': False, 'error': 'Missing required fields'}), 400
 
-        target_date = datetime.strptime(date, '%Y-%m-%d')
-        prediction = predictor.predict_restock_quantity(target_date)
-        predictor.add_historical_record(prediction, actual_quantity)
+        valid_levels = ['Very Low', 'Low', 'Low-Medium', 'Medium', 'Medium-High', 'High', 'Very High']
+        if actual_demand not in valid_levels:
+            return jsonify({'success': False, 'error': f'Invalid demand level. Use: {", ".join(valid_levels)}'}), 400
 
-        return jsonify({'success': True, 'message': 'Actual quantity recorded'})
+        target_date = datetime.strptime(date, '%Y-%m-%d')
+        prediction = predictor.predict_demand_level(target_date)
+        predictor.add_historical_record(prediction, actual_demand)
+
+        return jsonify({'success': True, 'message': 'Actual demand level recorded'})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/alerts', methods=['GET'])
 def get_alerts():
     try:
-        prediction = predictor.predict_restock_quantity()
+        prediction = predictor.predict_demand_level()
         stock = prediction['current_stock']['total']
+        demand_level = prediction['demand_level']['level']
         alerts = []
 
         if stock < 300:
             alerts.append({
                 'type': 'critical',
-                'message': 'Critical stock level detected',
-                'detail': f"Current stock ({stock}) is below minimum threshold of 300 units",
+                'message': 'Critical stock level',
+                'detail': f"Current stock ({stock}) is critically low",
                 'timestamp': datetime.now().isoformat()
             })
 
@@ -970,15 +998,15 @@ def get_alerts():
             alerts.append({
                 'type': 'warning',
                 'message': 'Low stock warning',
-                'detail': f"Stock level at {stock} units. Consider restocking soon.",
+                'detail': f"Stock level at {stock} units",
                 'timestamp': datetime.now().isoformat()
             })
 
-        if prediction['predicted_quantity'] >= 1800:
+        if demand_level in ['High', 'Very High']:
             alerts.append({
                 'type': 'info',
                 'message': 'High demand period approaching',
-                'detail': f"Predicted restock: {prediction['predicted_quantity']} units due to {prediction['calendar_event']['event_name']}",
+                'detail': f"{demand_level} demand predicted",
                 'timestamp': datetime.now().isoformat()
             })
 
@@ -987,7 +1015,15 @@ def get_alerts():
             alerts.append({
                 'type': 'warning',
                 'message': 'High price forecast',
-                'detail': f"Ex-farm price forecasted at RM {price_info['price']:.2f} for {prediction['target_date']}",
+                'detail': f"Ex-farm price forecasted at RM {price_info['price']:.2f}",
+                'timestamp': datetime.now().isoformat()
+            })
+
+        if demand_level in ['Low', 'Very Low']:
+            alerts.append({
+                'type': 'info',
+                'message': 'Low demand period',
+                'detail': f"{demand_level} demand expected",
                 'timestamp': datetime.now().isoformat()
             })
 
@@ -997,7 +1033,6 @@ def get_alerts():
 
 @app.route('/api/calendar/test', methods=['GET'])
 def test_calendar():
-    """Test endpoint to check calendar integration"""
     try:
         date_str = request.args.get('date', datetime.now().strftime('%Y-%m-%d'))
         target_date = datetime.strptime(date_str, '%Y-%m-%d')
@@ -1016,7 +1051,6 @@ def test_calendar():
 
 @app.route('/api/calendar/holidays', methods=['GET'])
 def get_holidays():
-    """Get all holidays for a specific year"""
     try:
         year = int(request.args.get('year', datetime.now().year))
         holidays = predictor.calendar_service.get_malaysian_holidays(year)
@@ -1042,16 +1076,13 @@ def health_check():
 
 @app.route('/debug', methods=['GET'])
 def debug_info():
-    """Debug endpoint to check system status"""
     return jsonify({
         'status': 'running',
         'python_version': sys.version,
         'current_time': datetime.now().isoformat(),
         'csv_exists': os.path.exists(TMP_CSV_PATH),
         'csv_size': os.path.getsize(TMP_CSV_PATH) if os.path.exists(TMP_CSV_PATH) else 0,
-        'tmp_files': os.listdir('/tmp') if os.path.exists('/tmp') else [],
-        'working_dir': os.getcwd(),
-        'files_in_dir': os.listdir('.')
+        'working_dir': os.getcwd()
     })
 
 @app.route('/', methods=['GET'])
@@ -1073,6 +1104,3 @@ def root():
             '/debug'
         ]
     })
-
-# Vercel requires the app object to be named 'app'
-# No need for handler function when using @vercel/python
