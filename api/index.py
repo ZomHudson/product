@@ -364,7 +364,8 @@ class ChickenRestockPredictor:
         self.history_file = TMP_HISTORY_PATH
         
         # Initialize live calendar service
-        calendarific_key = os.getenv('CALENDARIFIC_API_KEY')
+        # calendarific_key = os.getenv('CALENDARIFIC_API_KEY')
+        calendarific_key = "GvWPGX5LOuqPKg4BjMUHkOXRSe8VsVc4"
         self.calendar_service = LiveCalendarService(calendarific_key)
         
         ensure_tmp_csv_exists()
