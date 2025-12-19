@@ -501,7 +501,7 @@ class ChickenRestockPredictor:
             current_price = float(df.iloc[-1]['Avg_Price'])
             days_ahead = (target_date - datetime.now()).days
 
-            if days_ahead <= 3:
+            if days_ahead <= 0:
                 return {
                     'forecasted_price': current_price,
                     'confidence': 'High',
@@ -1050,5 +1050,6 @@ def root():
             '/debug - Debug info'
         ]
     })
+
 
 
