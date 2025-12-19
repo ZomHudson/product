@@ -509,7 +509,7 @@ class ChickenRestockPredictor:
                     'factors': {'base_price': current_price, 'days_ahead': days_ahead}
                 }
 
-            weeks_back = min(130, len(df))
+            weeks_back = min(8, len(df))
             recent_df = df.tail(weeks_back)
 
             trend_adjustment = 0.0
@@ -654,19 +654,19 @@ class ChickenRestockPredictor:
         stock_data = self.fetch_current_stock()
 
         days_ahead = (target_date - datetime.now()).days
-if days_ahead > 3:  # Changed from > 3 to > 0
-    price_info = self.get_price_forecast(target_date)
-    current_price = price_info['forecasted_price']
-    price_source = 'forecasted'
-else:
-    current_price = self.get_current_price()
-    price_info = {
-        'forecasted_price': current_price,
-        'confidence': 'High',
-        'method': 'current',
-        'factors': {'base_price': current_price}
-    }
-    price_source = 'current'
+        if days_ahead > 3:
+            price_info = self.get_price_forecast(target_date)
+            current_price = price_info['forecasted_price']
+            price_source = 'forecasted'
+        else:
+            current_price = self.get_current_price()
+            price_info = {
+                'forecasted_price': current_price,
+                'confidence': 'High',
+                'method': 'current',
+                'factors': {'base_price': current_price}
+            }
+            price_source = 'current'
 
         inventory_factor = self.calculate_inventory_factor(
             stock_data['factory_stock'],
@@ -1050,7 +1050,3 @@ def root():
             '/debug - Debug info'
         ]
     })
-
-
-
-
