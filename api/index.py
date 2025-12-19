@@ -509,7 +509,7 @@ class ChickenRestockPredictor:
                     'factors': {'base_price': current_price, 'days_ahead': days_ahead}
                 }
 
-            weeks_back = min(8, len(df))
+            weeks_back = min(130, len(df))
             recent_df = df.tail(weeks_back)
 
             trend_adjustment = 0.0
@@ -1050,3 +1050,4 @@ def root():
             '/debug - Debug info'
         ]
     })
+
