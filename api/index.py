@@ -799,7 +799,7 @@ class ChickenRestockPredictor:
 
 # Initialize predictor
 predictor = ChickenRestockPredictor(
-    api_url="https://kimiez-storage.vercel.app/api/analytics/96e27e560a23a5a21978005c3d69add802bfa5b9be3cb6c1f7735e51db80bfe2/overview"
+    api_url="https://inventory.ayamgorengkimiez.my/api/analytics/96e27e560a23a5a21978005c3d69add802bfa5b9be3cb6c1f7735e51db80bfe2/overview"
 )
 
 # API Routes
@@ -1050,3 +1050,4 @@ def root():
             '/debug - Debug info'
         ]
     })
+
